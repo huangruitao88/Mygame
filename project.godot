@@ -1,0 +1,126 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[animation]
+
+compatibility/default_parent_skeleton_in_mesh_instance_3d=true
+
+[application]
+
+config/name="侠影录 Wuxia Rogue"
+config/description="武侠风 2D 横版 Roguelite 动作原型"
+run/main_scene="res://scenes/title.tscn"
+config/features=PackedStringArray("4.7", "GL Compatibility")
+
+[autoload]
+
+; 全局屏幕管理：F11 / Alt+Enter 切全屏。跨场景常驻，只做窗口模式切换（见 scripts/screen.gd）。
+ScreenManager="*res://scripts/screen.gd"
+
+[display]
+
+; 视口从 480x270 提到 960x540（UI 参考图重排需要 2 倍布局空间），世界内容
+; 由 game.gd 的相机 zoom=2 保持原有屏幕占比 —— 贴图像素密度从 3x 提到 4x，画面更锐利。
+window/size/viewport_width=960
+window/size/viewport_height=540
+; 默认窗口 = 视口的 2 倍。1920x1080 在 1920x1080 屏上会被标题栏挤成 1920x1061，
+; 但那只会让倍率变成 1.965（fractional 不取整），画面照样铺满，不会掉档。
+; 想看像素完美的整数倍就按 F11 进全屏（全屏 = 屏幕原生分辨率，这里正好 2.0x）。
+; 嫌窗口太大可改成 1280x720（同是 16:9，撑开后倍率 1.333）。
+window/size/window_width_override=1920
+window/size/window_height_override=1080
+window/stretch/mode="viewport"
+; expand：视口宽高比**跟着窗口走**，窗口比 16:9 宽出来的部分补成更宽的视口，
+; 而不是留成黑边。960x540 这块「基准区」永远完整可见，所以
+;   · HUD/背景仍按 960x540 写死坐标（VIEW 常量 = 布局基准，不用改）
+;   · 补出来的差值由 game.gd / title.gd 的锚定表统一摊开（贴右的右移、全宽条拉宽）
+; 这样既没有黑边、也不拉伸变形。窗口比例 = 16:9 时 delta 为 0，行为与 keep 完全一致。
+window/stretch/aspect="expand"
+; ⚠️ 必须是 fractional，**不能**用 integer。
+;
+; integer 的算法是 scale = floor(min(win.x/960, win.y/540))，向下取整意味着
+; 窗口高度只要差 1px，整档缩放就掉下来。实测本机 1920x1080 屏：
+;   窗口模式 win=1920x1061（标题栏吃掉 19px）→ min(2.0, 1.965)=1.965 → floor=1
+;   最大化   win=1920x1009（任务栏吃掉 71px）→ min(2.0, 1.869)=1.869 → floor=1
+; 于是画面从 1920x1080 直接缩到 960x540 居中，四周黑边 480x260 —— 就是「全屏后
+; 画面缩在中间一大圈黑边」的成因。只有恰好 1920x1080 的真全屏才勉强是 2 倍。
+;
+; fractional 不做取整：窗口放大 1.965 倍就是 1.965 倍。真全屏 1920x1080 时
+; 倍率仍精确等于 2.0，像素完美这个目标一点没丢。
+window/stretch/scale_mode="fractional"
+
+[input]
+
+move_left={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":65,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+, Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":4194319,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+move_right={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":68,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+, Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":4194321,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+jump={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":32,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+, Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":87,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+attack={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":74,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+pickup={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":69,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+guard={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":76,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+evade={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":75,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+dash={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":4194325,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+restart={
+"deadzone": 0.2,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":82,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+
+[layer_names]
+
+2d_physics/layer_1="world"
+2d_physics/layer_2="player"
+2d_physics/layer_3="enemy"
+2d_physics/layer_4="player_hitbox"
+2d_physics/layer_5="enemy_hitbox"
+
+[physics]
+
+2d/default_gravity=1400.0
+
+[rendering]
+
+textures/canvas_textures/default_texture_filter=0
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
