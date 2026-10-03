@@ -41,6 +41,9 @@ var _bg_x_start: float = 0.0
 ## 主角序列帧节点（见 _check_player_anim），以及待机时的绘制偏移（用来验证切动画会换偏移）
 var _player_anim: AnimatedSprite2D = null
 var _anim_offset_idle: Vector2 = Vector2.ZERO
+## 掉落兜底探针记住的那个敌兵（30 帧投放到关卡外，50 帧检查是否被送回）
+var _fall_enemy: Node2D = null
+
 ## 残影容器（见 _check_dash_ghosts_*）与「前冲用例」起手时的横坐标
 var _ghosts: Node = null
 var _lunge_x: float = 0.0
@@ -160,6 +163,11 @@ func _physics_process(_delta: float) -> void:
 		# 冲刺残影：起手就落一张，之后按间隔补；FADE 之后必须自己回收干净
 		121: _check_dash_ghosts_spawned()
 		210: _check_dash_ghosts_cleared()
+		# 掉落兜底：此刻玩家还活着、场上还有敌兵（攀墙用例 272 帧才清空），
+		# 且 210~260 之间没有位移用例占用，是投放探针的合适空档。
+		# 掉出关卡的实体玩家既看不见也打不到 → 「敌人 N/M」永远降不下来 → 死局。
+		212: _drop_out_of_level()
+		230: _check_fall_recovered()
 		260: _tap("dash")
 		# —— 掉落物的物理回调用例（趁玩家还在疾跑，敌人未近身）——
 		# —— 攀墙用例：同一道墙，单跳翻不过 / 接上二段跳能翻过 ——
@@ -496,6 +504,40 @@ func _check_feedback_fired() -> void:
 
 ## 到这一步屏震必须已经衰减干净（否则镜头会永远差零点几像素），
 ## 顺便确认顿帧没把整棵树留在暂停态 —— 那会让之后的一切都不再推进。
+## 掉落兜底：把玩家和一个敌兵扔到关卡外，20 帧内必须都被送回可玩区域。
+##
+## 这条守护的是**死局**：掉出去的实体玩家攻击判定覆盖不到，
+## 于是「敌人 N/M」永远降不下来、Boss 死不掉、关门不开 —— 整局报废。
+## 实测过的坑：兜底早先遍历 `_enemies` 数组，那个数组**并不保证包含场上每个敌兵**
+## （探针里实测到 `敌兵在列表内=false`），所以修复后改用 group 遍历。
+## 这个断言能同时守住「兜底存在」与「兜底看得见全部敌人」两件事。
+## 把玩家和一个敌兵同时扔到关卡外，验证 game.gd 的掉落兜底会把两者都送回。
+## 掉出关卡的实体玩家既看不见也打不到 —— 屏幕只剩空画面，玩家会以为游戏卡死；
+## 敌兵掉出去则「敌人 N/M」永远降不下来、Boss 死不掉、关门不开，整局变死局。
+## 属于**可玩性底线**，必须有断言守着。
+func _drop_out_of_level() -> void:
+	_player.global_position = Vector2(_player.global_position.x, 1500.0)
+	_player.velocity = Vector2.ZERO
+	_fall_enemy = null
+	for node: Node in get_tree().get_nodes_in_group("enemy"):
+		var e: Node2D = node as Node2D
+		if e != null:
+			_fall_enemy = e
+			break
+	if _fall_enemy != null:
+		_fall_enemy.global_position = Vector2(_fall_enemy.global_position.x, 1500.0)
+
+
+func _check_fall_recovered() -> void:
+	_assert(_player.global_position.y < 700.0,
+		"玩家掉出关卡后被送回可玩区域（y = %.0f）" % _player.global_position.y)
+	if _fall_enemy != null and is_instance_valid(_fall_enemy):
+		_assert(_fall_enemy.global_position.y < 700.0,
+			"敌兵掉出关卡后被送回（y = %.0f）" % _fall_enemy.global_position.y)
+	else:
+		_assert(false, "掉落探针没找到敌兵（投放时场上应至少有 1 个）")
+
+
 func _check_shake_settled() -> void:
 	_assert(not get_tree().paused, "顿帧结束后整棵树已恢复，没卡在暂停")
 	var off: Vector2 = _camera_offset()

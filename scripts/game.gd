@@ -252,6 +252,7 @@ func _process(delta: float) -> void:
 		_update_background()
 	_update_minimap()
 	_update_shake(delta)
+	_check_fall_out()
 
 func _exit_tree() -> void:
 	# 顿帧期间切场景（R 重开 / Esc 回主界面）时把暂停还回去，否则下一个场景整棵树是冻的
@@ -1046,6 +1047,59 @@ func _show_guard_hint(text: String, color: Color) -> void:
 	_guard_hint_tween = create_tween()
 	_guard_hint_tween.tween_interval(0.35)
 	_guard_hint_tween.tween_property(_guard_hint, "modulate:a", 0.0, 0.35)
+
+## ---------------- 掉落兜底（防关卡死局） ----------------
+
+## 掉到这条线以下就认为「 fell出关卡」。
+## 底部岩体 Rect2(-80, 390, 1790, 200) 覆盖到 y=590，但**敌兵会被击退到岩体横向之外**
+## （x < -80 或 x > 1710），那里没有地面托着，它会一路坠到无限远。
+## 玩家在那种 x 上同样会掉 —— 只是掉得慢一些。
+const FALL_KILL_Y := 720.0
+## 玩家掉出关卡时回到的坐标（出生点）。
+const RESPAWN_POS := PLAYER_START
+
+
+## 逐帧检查玩家与全部敌兵有没有掉出关卡。
+##
+## 为什么必须有：掉出去的实体**玩家打不到**（攻击判定只覆盖相机附近），
+## 于是「敌人 N/M」永远降不下来，Boss 死不掉、关门不开 —— 整局变成死局，
+## 只能按 R 重开。这是**功能性缺陷**，不是画面瑕疵。
+##
+## 数据源用**group 而不是 _enemies 数组**：group 由 enemy._ready() 自己注册，
+## 是「场上活着的敌兵」的唯一真相源。_enemies 数组只用于 died 时erase，
+## 若实体因任何原因没进数组（中途生成、异常顺序），这里就会漏掉它 ——
+## 而漏掉的后果是死局，所以宁可多遍历一次 group。
+func _check_fall_out() -> void:
+	if _player != null and is_instance_valid(_player) and _player.is_alive():
+		if _player.global_position.y > FALL_KILL_Y:
+			_respawn_player()
+	for node: Node in get_tree().get_nodes_in_group("enemy"):
+		var e: WuxiaEnemy = node as WuxiaEnemy
+		if e == null or not is_instance_valid(e) or e.is_dead():
+			continue
+		if e.global_position.y > FALL_KILL_Y:
+			# 不算击杀（不涨「已斩」计数、不给掉落），只是把走失的敌人送回它
+			# 自己的出生点 —— 它本来就属于那里，掉出去纯属意外。
+			e.respawn_at_origin()
+
+
+## 玩家掉出关卡：原地拉回出生点。不算死亡（不触发 died、不扣存档进度）——
+## 掉出关卡是关卡设计失误的兜底，不是玩家的战斗失败。
+func _respawn_player() -> void:
+	if _player == null or not is_instance_valid(_player):
+		return
+	_player.global_position = RESPAWN_POS
+	_player.velocity = Vector2.ZERO
+	# 硬直清零：带着击退速度重生会立刻又被弹出去。
+	# 这两个计时器是 player.gd 的私有字段，用 set 写——跨类访问私有状态本该走公开方法，
+	# 但这里是「关卡级复位」，语义上就该由关卡主导，且 player 没有对应的 reset API。
+	_player.set("_invuln", 1.0)
+	_player.set("_dash_timer", 0.0)
+	_player.set("_evade_timer", 0.0)
+	_show_toast("掉出关卡 · 已送回起点", C_GOLD)
+	if _camera != null:
+		_camera.global_position = _player.global_position + Vector2(0, -20)
+
 
 func _on_enemy_died(enemy: WuxiaEnemy) -> void:
 	_enemies.erase(enemy)

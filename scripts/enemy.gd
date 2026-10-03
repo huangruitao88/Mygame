@@ -98,6 +98,10 @@ var _facing: int = 1
 var _stun: float = 0.0
 var _flash: float = 0.0
 var _origin_x: float = 0.0
+## 出生时的 y。掉出关卡后要**连y 一起**送回这里（只恢复 x 会让它继续在虚空里下坠）。
+var _spawn_y: float = 0.0
+## 回归保护：送回原位后的短暂无敌，避免同帧落地又被玩家一刀砍掉。
+var _respawn_grace: float = 0.0
 var _dead: bool = false
 
 ## 近身攻击状态：>0 表示正在出招（停步、不再巡逻/追击）
@@ -144,6 +148,7 @@ func _ready() -> void:
 	collision_mask = 1 | 2
 	_health = max_health
 	_origin_x = global_position.x
+	_spawn_y = global_position.y
 	_build_visuals()
 	_build_sensors()
 	health_changed.emit(_health, max_health)
@@ -176,6 +181,7 @@ func _physics_process(delta: float) -> void:
 		return
 	_stun = maxf(_stun - delta, 0.0)
 	_flash = maxf(_flash - delta, 0.0)
+	_respawn_grace = maxf(_respawn_grace - delta, 0.0)
 	_attack_cd = maxf(_attack_cd - delta, 0.0)
 	_visuals.modulate = Color(3.0, 3.0, 3.0) if _flash > 0.0 else Color.WHITE
 	_visuals.scale.x = float(_facing)
@@ -284,6 +290,30 @@ func _on_touch_area_body_entered(body: Node2D) -> void:
 		return
 	if body.has_method("take_damage"):
 		body.call("take_damage", touch_damage, global_position)
+
+func is_dead() -> bool:
+	return _dead
+
+
+## 掉出关卡时被 game.gd 叫来：送回它的**出生平台**。
+## 不算死亡 —— 不发 died、不进「已斩」计数、不掉能量球。
+## 它本来就属于那块地面，走失纯属意外，回归原位是最符合直觉的处理。
+##
+## 关键：要连**y 一起**送回，只恢复 x 没用 —— 掉出关卡时 y 已经在岩体之外
+## （比如 700），只改 x 的话它站在虚空里继续下坠，下一帧又越界，无限循环。
+## 用global_position 兜底最稳：万一生成原点也异常，至少能落回可玩区域。
+func respawn_at_origin() -> void:
+	var home := _spawn_y
+	if not is_finite(home):
+		home = 0.0
+	global_position = Vector2(_origin_x, home)
+	velocity = Vector2.ZERO
+	_stun = 0.0
+	_attack_left = 0.0
+	_attack_cd = 0.0
+	# 硬直里的一帧不该被立刻打断：给 0.2s 缓冲，避免同帧落地又被判定
+	_flash = 0.0
+	_respawn_grace = 0.2
 
 # ---------- 死亡 ----------
 
