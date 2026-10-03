@@ -28,38 +28,52 @@ const ATTACK_REACH := 26.0
 const ATTACK_DAMAGE_BONUS := 4
 
 ## ---------------- 序列帧动画 ----------------
-## 每条动画一套「贴图/网格/帧数/帧率/帧锚点/播放顺序」，由 tools/make_enemy_sheet.py
-## 归一化产出：帧锚点恒为「格子横向正中 + 底部 pad 上沿」，运行时把「脚底中线」对到节点原点。
+## 每条动画一套「贴图/网格/帧数/帧率/帧锚点/世界缩放/播放顺序」，
+## 由 tools/make_enemy_sheet.py 归一化产出：帧锚点恒为「格子横向正中 + 底部 pad 上沿」，
+## 运行时把「脚底中线」对到节点原点。
 ## order 允许乱序播放（攻击图第 2 格画的是下劈、第 3 格是横扫，重排后动作才连顺）。
+##
+## 2026-10-03 画质升级：贴图改为按**源素材原始角色高 1:1** 导出（400px），
+## 再由 `scale` 压回世界高度（敌兵 46px）。旧做法是先缩到 46px 小图再放大，
+## 等于在离线阶段就扔掉 88% 的像素，放大后一路糊 —— 与 player.gd 同一套理由。
+## `scale` 作用在 AnimatedSprite2D 上而非 _visuals：后者的 scale.x 是朝向镜像。
 const ANIMS: Dictionary = {
 	&"idle": {
 		"sheet": "res://assets/sprites/minion_idle.png",
 		"cols": 2, "rows": 2, "frames": 4, "fps": 5.0,
-		"anchor": Vector2(0.5, 0.8966), "order": [0, 1, 2, 3],
+		"anchor": Vector2(0.5, 0.9854), "order": [0, 1, 2, 3],
+		"scale": 46.0 / 400.0,
 	},
 	&"walk": {
 		"sheet": "res://assets/sprites/minion_walk.png",
 		"cols": 2, "rows": 2, "frames": 4, "fps": 8.0,
-		"anchor": Vector2(0.5, 0.8966),
+		"anchor": Vector2(0.5, 0.9854),
 		# 相位序：源图 f2=前伸 f0=触地 f3=后蹬 f1=收腿过渡。
 		# 按网格序播放会在「前伸→后蹬」处让前脚瞬移回身下，看起来像倒着走。
 		"order": [2, 0, 3, 1],
+		"scale": 46.0 / 400.0,
 	},
 	&"attack": {
 		"sheet": "res://assets/sprites/minion_attack.png",
 		"cols": 2, "rows": 2, "frames": 4, "fps": 7.5,
-		"anchor": Vector2(0.5, 0.8966), "order": [0, 3, 1, 2],
+		"anchor": Vector2(0.5, 0.9854), "order": [0, 3, 1, 2],
+		"scale": 46.0 / 400.0,
 	},
 	&"hurt": {
 		"sheet": "res://assets/sprites/minion_hurt.png",
 		"cols": 2, "rows": 2, "frames": 3, "fps": 10.0,
-		"anchor": Vector2(0.5, 0.8966), "order": [0, 1, 3],
+		"anchor": Vector2(0.5, 0.9854), "order": [0, 1, 3],
+		"scale": 46.0 / 400.0,
 	},
 }
 ## 循环与否：待机/行走循环；攻击/受击是一次性动作，播完停住由状态机切走
 const ANIM_LOOP := {
 	&"idle": true, &"walk": true, &"attack": false, &"hurt": false,
 }
+## 序列帧的纹理过滤。**线性**，与项目默认的最近邻相反 —— 贴图 400px 缩到 46px
+## 是 8.7 倍缩小，缩小时线性加权平均才是平滑无闪烁的正确做法（最近邻会硬抽样、
+## 丢掉 99% 源像素，边缘全是锯齿）。Boss 继承本常量。
+const ENEMY_TEXTURE_FILTER := CanvasItem.TEXTURE_FILTER_LINEAR
 const ANIM_IDLE := &"idle"
 const ANIM_WALK := &"walk"
 const ANIM_ATTACK := &"attack"
@@ -97,6 +111,9 @@ var _visuals: Node2D
 var _anim: AnimatedSprite2D
 ## 每条动画的绘制偏移（把「脚底中线」对到节点原点），切动画时必须跟着换
 var _anim_offsets: Dictionary = {}
+## 每条动画的世界缩放（源图角色高 400px → 46px）。与 _anim_offsets 同源，
+## 切动画时必须同步换，否则两条动画之间角色会忽大忽小。
+var _anim_scales: Dictionary = {}
 ## 已应用的动画名。自己记一份：给 AnimatedSprite2D 赋 sprite_frames 时引擎会自动
 ## 选中第一条动画，「同名判据」会因此漏掉首次应用（player.gd 踩过同一个坑）。
 var _anim_current: StringName = &""
@@ -339,17 +356,22 @@ func _build_sprite_visuals() -> bool:
 		frames.set_animation_loop(anim_name, ANIM_LOOP[anim_name])
 		_add_frames(frames, anim_name, tex, cfg)
 		# 把「脚底中线」对到节点原点：敌兵的原点在脚底（受击盒 y -body_size.y..0）
+		# 用**缩放后**的格子尺寸算offset —— offset 在 scale 之后生效，用原始格子会偏出去。
+		var scale_factor: float = float(cfg.get("scale", 1.0))
 		var cell := Vector2(
-			float(tex.get_width()) / float(cfg["cols"]),
-			float(tex.get_height()) / float(cfg["rows"]))
+			float(tex.get_width()) / float(cfg["cols"]) * scale_factor,
+			float(tex.get_height()) / float(cfg["rows"]) * scale_factor)
 		_anim_offsets[anim_name] = (-cell * (cfg["anchor"] as Vector2)).round()
+		_anim_scales[anim_name] = scale_factor
 
 	_anim = AnimatedSprite2D.new()
 	_anim.name = "Anim"
 	_anim.sprite_frames = frames
 	_anim.centered = false
-	# 最近邻：序列帧按游戏内 1:1 高度预缩放，放大显示时才是硬像素块（与主角同一套约定）
-	_anim.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	# 线性过滤：贴图 400px 缩到 46px 是 8.7 倍**缩小**，缩小时该用线性
+	#（加权平均掉大量源像素，边缘平滑不闪）；最近邻是硬抽样，会直接扔掉 99% 信息。
+	# 这与 player.gd 的 PLAYER_TEXTURE_FILTER 是同一套理由。
+	_anim.texture_filter = ENEMY_TEXTURE_FILTER
 	_visuals.add_child(_anim)
 	_anim_current = &""
 	_apply_anim(ANIM_IDLE)
@@ -380,6 +402,9 @@ func _apply_anim(anim: StringName) -> void:
 		return
 	_anim_current = anim
 	_anim.offset = _anim_offsets[anim]
+	# scale 与 offset 成对切换：两者都来自同一份缩放后 cell 的计算，缺一个就会偏。
+	var s: float = float(_anim_scales.get(anim, 1.0))
+	_anim.scale = Vector2(s, s)
 	_anim.play(anim)
 
 ## 头顶血条（见字段注释）。宽度按血量比例从左往右缩：

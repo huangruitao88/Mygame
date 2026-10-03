@@ -25,30 +25,37 @@ var _timer: float = 0.0
 var _cooldown: float = FIRST_DASH_DELAY
 var _telegraph: Polygon2D
 
-## Boss 序列帧（黑甲刀将）。锚点由 make_enemy_sheet.py 逐格量出，与杂兵不同。
+## Boss 序列帧（黑甲刀将）。锚点由 make_enemy_sheet.py 逐格量出，与杂兵同套归一化。
 ## 刻意不叫 ANIMS：GDScript 不允许子类常量遮蔽父类同名成员，经 _sprite_anims() 提供给基类。
+##
+## 2026-10-03 画质升级：贴图按源素材原始角色高 **1:1** 导出（400px），再由 `scale`
+## 压回世界高度（Boss 54px，比杂兵高 8px，体型差与旧版一致）。见 enemy.gd 的同类注释。
 const BOSS_ANIMS: Dictionary = {
 	&"idle": {
 		"sheet": "res://assets/sprites/boss_idle.png",
 		"cols": 2, "rows": 2, "frames": 4, "fps": 5.0,
-		"anchor": Vector2(0.5, 0.9231), "order": [0, 1, 2, 3],
+		"anchor": Vector2(0.5, 0.9854), "order": [0, 1, 2, 3],
+		"scale": 54.0 / 400.0,
 	},
 	&"walk": {
 		"sheet": "res://assets/sprites/boss_walk.png",
 		"cols": 2, "rows": 2, "frames": 4, "fps": 6.0,
-		"anchor": Vector2(0.5, 0.9231),
+		"anchor": Vector2(0.5, 0.9854),
 		# 相位序同小怪：f2=前伸 f0=触地 f3=后蹬 f1=收腿过渡（网格序会倒着走）
 		"order": [2, 0, 3, 1],
+		"scale": 54.0 / 400.0,
 	},
 	&"attack": {
 		"sheet": "res://assets/sprites/boss_attack.png",
 		"cols": 2, "rows": 2, "frames": 4, "fps": 4.5,
-		"anchor": Vector2(0.5, 0.9231), "order": [0, 1, 2, 3],
+		"anchor": Vector2(0.5, 0.9854), "order": [0, 1, 2, 3],
+		"scale": 54.0 / 400.0,
 	},
 	&"hurt": {
 		"sheet": "res://assets/sprites/boss_hurt.png",
 		"cols": 2, "rows": 2, "frames": 3, "fps": 8.0,
-		"anchor": Vector2(0.5, 0.9231), "order": [0, 2, 3],
+		"anchor": Vector2(0.5, 0.9854), "order": [0, 2, 3],
+		"scale": 54.0 / 400.0,
 	},
 }
 

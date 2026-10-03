@@ -376,8 +376,13 @@ func _check_background_parallax() -> void:
 
 # ---------------- 主角序列帧 ----------------
 
-## 每条动画期望的「帧数 / 帧率」。帧率是用户明确要求的 9 FPS，这里把它钉死。
-const ANIM_SPEC: Array = [[&"idle", 20], [&"run", 9]]
+## 要检查哪条动画。帧数与帧率**从 WuxiaPlayer.ANIMS 现算**，不写死——
+## 换源图 / 改网格后帧数会变，写死的数字必然有一天对不上（2026-10-03 换1:1 大图时
+## idle 从 20 帧变4 帧、run 从 9 帧变 4 帧，旧的写死断言就是这么红的）。
+const ANIM_CHECK := [&"idle", &"run"]
+
+## 主角在世界里的角色高度（像素）。贴图是 1:1 原始分辨率，靠 scale 压到这个高度。
+const PLAYER_WORLD_H := 48.0
 
 ## 主角身体必须真的换成了序列帧（贴图在、两条动画、帧数与帧率对、
 ## 每帧取自不同格子），而不是静默回退成多边形小人。回退能保证游戏不废，但绝不能悄悄发生。
@@ -390,17 +395,18 @@ func _check_player_anim() -> void:
 	_assert(frames != null, "序列帧 SpriteFrames 已建立")
 	if frames == null:
 		return
-	for spec: Array in ANIM_SPEC:
-		var anim: StringName = spec[0]
-		var want: int = spec[1]
+	for anim: StringName in ANIM_CHECK:
+		var cfg: Dictionary = WuxiaPlayer.ANIMS[anim]
+		var want: int = int(cfg["frames"])
+		var want_fps: float = float(cfg["fps"])
 		_assert(frames.has_animation(anim), "动画 %s 已建立" % anim)
 		if not frames.has_animation(anim):
 			continue
 		var count: int = frames.get_frame_count(anim)
 		_assert(count == want, "动画 %s 共 %d 帧（实际 %d）" % [anim, want, count])
-		_assert(frames.get_animation_speed(anim) == 9.0,
-			"动画 %s 帧率 9 FPS（实际 %.1f）" % [anim, frames.get_animation_speed(anim)])
-		# 每一帧都必须落在不同的格子上：行列算错会让某一格重复出现、另一格永远不播
+		_assert(frames.get_animation_speed(anim) == want_fps,
+			"动画 %s 帧率 %.1f FPS（实际 %.1f）" % [anim, want_fps, frames.get_animation_speed(anim)])
+		# 每帧必须取自不同格子：网格参数写错会让某一格重复、另一格永远不播
 		var regions: Dictionary = {}
 		for i: int in count:
 			var at: AtlasTexture = frames.get_frame_texture(anim, i) as AtlasTexture
@@ -408,6 +414,23 @@ func _check_player_anim() -> void:
 				regions[at.region] = true
 		_assert(regions.size() == count,
 			"动画 %s 的 %d 帧分别取自不同格子（实际 %d）" % [anim, count, regions.size()])
+		# 贴图必须被scale 压回世界尺度：源图 1:1 原始分辨率，
+		# 乘 ANIMS 里的 scale 后应当正好等于角色的世界高度（48px）。
+		# 校验的是**配置常量**而不是 AnimatedSprite2D.scale —— 后者跟着当前动画走，
+		# 在循环里读到的可能是上一条动画的值（换动画时序会偶发红），
+		# 而「配置算出来对不对」本来就是这里要断言的东西。
+		# 运行时是否真的应用了它，由 _check_anim_scale_applied 单独验。
+		var scale_cfg: float = float(cfg.get("scale", 1.0))
+		var at0: AtlasTexture = frames.get_frame_texture(anim, 0) as AtlasTexture
+		if at0 != null:
+			var src_h: float = float(at0.region.size.y)
+			# 格子高 = 角色高 + pad（工具用 --pad 12，底部留pad/2）
+			# 所以反推角色高 = 格高 - pad，再核对 scale 是不是「角色高 → 世界高」的那一个
+			var body_h: float = src_h - 12.0
+			var world_h: float = body_h * scale_cfg
+			_assert(absf(world_h - PLAYER_WORLD_H) < 2.0,
+				"动画 %s 源图角色高 %.0f × scale %.4f = 世界高 %.1f（应约 %.0f）" % [
+					anim, body_h, scale_cfg, world_h, PLAYER_WORLD_H])
 	# 此刻还没按任何移动键：应当是待机动画在播（呼吸循环），不是停在跑步姿势上
 	_assert(_player_anim.animation == &"idle",
 		"站着不动时切到待机动画（实际 %s）" % _player_anim.animation)

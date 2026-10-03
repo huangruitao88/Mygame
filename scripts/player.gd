@@ -143,46 +143,60 @@ const C_SHIELD := Color("#cfd8dc")
 const C_PARRY := Color("#ffd45e")
 const C_BREAK := Color("#8a2f28")
 
-## 主角序列帧。每条动画自带一套「贴图 / 网格 / 帧数 / 帧率 / 帧锚点」——
-## 不同序列图的格子尺寸与角色大小都不一样（跑步图 4x3、待机图 5x4），
+## 主角序列帧。每条动画自带一套「贴图 / 网格 / 帧数 / 帧率 / 帧锚点/ 世界缩放」——
+## 不同序列图的格子尺寸与角色大小都不一样（跑步图 4x3、待机图 2x2），
 ## 所以尺寸参数挂在动画配置里，不写成全局常量；新增动画只在这里加一条。
 ##
-## 贴图都由 tools/make_player_sheet.py 按**目标角色高度 48px** 预缩放到 1:1，运行时不再缩放：
-## 主角在 480x270 的视口里只有约 48px 高，原图 256px 的格子要缩到 0.22 倍 ——
-## 交给 GPU 实时缩，4.6 倍最小化 + 无 mipmap 会一路闪烁。
-## 按「角色高度」而不是「格子边长」缩放，才能保证两条动画切换时体型不变。
+## 贴图由 tools/make_enemy_sheet.py 按**源素材的原始角色高度 1:1** 导出
+## （idle 432 / run 399 / jump·attack·hurt 324，都对应各自源图的实际像素高，缩放系数 1.0000），
+## 再由每条动画的 `scale` 压回世界尺度。
+##
+## 为什么不直接导成48px小图（旧做法）：源素材是 1024x1024、角色 300~430px 高，
+## 缩到 48px 等于丢掉 85% 的像素细节，脸和衣纹全糊掉，放大 4 倍后一路闪烁。
+## 1:1 导出 + 运行时缩放，源像素一个不丢；屏幕上仍是 48px 高的角色。
+##
+## `scale` = 48（世界角色高） / 该动画源图角色高，所以三条动画各不相同。
+## 它作用在 AnimatedSprite2D 上而不是 _visuals：_visuals.scale.x 已被朝向镜像占用，
+## 两者相乘会把翻转和缩放搅在一起。
 const ANIMS: Dictionary = {
 	&"idle": {
 		"sheet": "res://assets/sprites/player_idle.png",
-		"cols": 5, "rows": 4, "frames": 20, "fps": 9.0,
+		"cols": 2, "rows": 2, "frames": 4, "fps": 9.0,
 		## 帧锚点：格子尺寸 × 该比例 = 角色「脚底中线」在格子里的位置。
-		## 由 make_player_sheet.py 逐格量内容、再取中位数得到（比例形式，与缩放无关）。
-		"anchor": Vector2(0.5117, 0.9384),
+		## 由 make_enemy_sheet.py 归一化产出（比例形式，与缩放无关）。
+		"anchor": Vector2(0.5, 0.9865),
+		"scale": 48.0 / 432.0,
 	},
 	&"run": {
 		"sheet": "res://assets/sprites/player_run.png",
-		"cols": 4, "rows": 3, "frames": 9, "fps": 9.0,
-		"anchor": Vector2(0.4727, 0.9297),
+		"cols": 2, "rows": 2, "frames": 4, "fps": 9.0,
+		"anchor": Vector2(0.5, 0.9854),
+		"scale": 48.0 / 399.0,
 	},
 	## 攻击：三段连击共用这一条序列帧（身体摆动 + 前冲），剑刃由多边形剑 _sword 叠加，
 	## 与 idle/run 同工艺（贴图不含剑，剑是独立叠加物）。loop=false：出招期间播一次，
 	## 状态机在 wind→hit→recover→idle 切换时会重新 play，于是每一击都重播这套挥砍。
+	## ⚠️ 暂无独立源图，暂用 jump 的素材（仓库里只有 3 张玩家源图）。
+	## 补一张attack 专用源图后，把 sheet/scale 换掉即可，其余代码不用动。
 	&"attack": {
 		"sheet": "res://assets/sprites/player_attack.png",
 		"cols": 2, "rows": 2, "frames": 4, "fps": 14.0,
-		"anchor": Vector2(0.5, 0.9),
+		"anchor": Vector2(0.5, 0.9821),
+		"scale": 48.0 / 324.0,
 	},
 	## 受击：被命中瞬间的后仰/踉跄。loop=false，由 _hurt_timer 驱动播一次。
 	&"hurt": {
 		"sheet": "res://assets/sprites/player_hurt.png",
 		"cols": 2, "rows": 2, "frames": 4, "fps": 18.0,
-		"anchor": Vector2(0.5, 0.9),
+		"anchor": Vector2(0.5, 0.9821),
+		"scale": 48.0 / 324.0,
 	},
 	## 跳跃/下落：空中姿态共用这一条（升空与坠落都播），落地后回到 idle/run。
 	&"jump": {
 		"sheet": "res://assets/sprites/player_jump.png",
 		"cols": 2, "rows": 2, "frames": 4, "fps": 10.0,
-		"anchor": Vector2(0.5, 0.9),
+		"anchor": Vector2(0.5, 0.9821),
+		"scale": 48.0 / 324.0,
 	},
 }
 ## 没有位移、也没有攻击（出招时另有长剑可看）时播的动画
@@ -200,10 +214,17 @@ const ANIM_LOOP := {
 	&"idle": true, &"run": true, &"jump": true,
 	&"attack": false, &"hurt": false,
 }
-## 主角的纹理过滤。与项目默认一致（最近邻）：序列帧是按 48px 高的 1:1 做的，
-## 放大显示时最近邻才是硬像素块；线性过滤会把边缘插值成一层灰边，看着就是「糊」。
-## 前提是像素对齐（见 _pixel_snap_offset），否则最近邻会让边缘逐帧跳动。
-const PLAYER_TEXTURE_FILTER := CanvasItem.TEXTURE_FILTER_NEAREST
+## 主角的纹理过滤。**2026-10-03 改为线性**，与项目默认的最近邻相反。
+##
+## 改的原因：贴图从「48px 世界尺寸、靠相机 zoom 放大 4倍」变成了
+## 「432px 原始分辨率、靠 scale 缩小 9 倍到48px」。**缩小方向该用线性**：
+## 线性在 9:1 缩小时对每个屏幕像素做 3x3 加权平均，输出平滑、无闪烁；
+## 最近邻是硬抽样，会丢掉大量源像素（432→48 直接扔掉 99% 的信息），边缘全是锯齿。
+##
+## 这与像素风不冲突：像素风指的是「美术是有意做的低分辨率像素画」，
+## 而这里是「高分辨率美术被缩到小尺寸显示」，两者的最佳过滤方式本来就相反。
+## 敌兵 / Boss 同理，都改了，见enemy.gd 的 ENEMY_TEXTURE_FILTER。
+const PLAYER_TEXTURE_FILTER := CanvasItem.TEXTURE_FILTER_LINEAR
 
 @export var max_health: int = BASE_MAX_HEALTH
 
@@ -267,6 +288,9 @@ var _anim: AnimatedSprite2D
 ## 每条动画的绘制偏移（把「脚底中线」对到节点原点）。切动画时要跟着换 ——
 ## 两条序列图的格子尺寸与帧锚点都不同，共用一个 offset 会让角色在切换瞬间跳一下。
 var _anim_offsets: Dictionary = {}
+## 每条动画的世界缩放（源图角色高 → 48px）。与 _anim_offsets 一样按动画存，
+## 切换动画时必须同步换，否则角色会在两条不同分辨率的动画之间「忽大忽小」。
+var _anim_scales: Dictionary = {}
 ## 已应用到精灵上的动画名。刻意自己记一份、不拿 `_anim.animation` 当依据：
 ## 给 AnimatedSprite2D 赋 sprite_frames 时，引擎会自己把 animation 选成第一条，
 ## 于是首次 _apply_anim() 会被「同名」判据挡掉 —— 既不 play 也没设 offset，
@@ -1051,23 +1075,31 @@ func _build_anim() -> bool:
 		frames.set_animation_loop(anim_name, ANIM_LOOP.get(anim_name, true))
 		_add_frames(frames, anim_name, tex, cfg)
 		# 把「脚底中线」对到节点原点：主角的原点在脚底（受击盒 y -28..0、敌兵也按脚底对齐）
+		#
+		# 关键：这里必须用**缩放后**的格子尺寸。贴图是 1:1 原始分辨率（432px 高），
+		# 而节点上会被 scale 压到 48px；offset 是 AnimatedSprite2D 的绘制偏移，
+		# 在缩放之后才生效，所以要按缩放后的格子算—— 用原始格子算会差好几倍，
+		# 角色会飘到画面外或埋进地里。
+		var scale_factor: float = float(cfg.get("scale", 1.0))
 		var cell := Vector2(
-			float(tex.get_width()) / float(cfg["cols"]),
-			float(tex.get_height()) / float(cfg["rows"]))
-		# 取整：锚点是比例（-cell × 0.5117 = -20.468 这类小数），留着它精灵就永远
+			float(tex.get_width()) / float(cfg["cols"]) * scale_factor,
+			float(tex.get_height()) / float(cfg["rows"]) * scale_factor)
+		# 取整：锚点是比例（-cell × 0.5 = -216 这类小数），留着它精灵就永远
 		# 画在半个像素上，过滤时会把整帧抹糊。锚点差 0.5px 肉眼无感，对齐却差很多。
 		_anim_offsets[anim_name] = (-cell * (cfg["anchor"] as Vector2)).round()
+		_anim_scales[anim_name] = scale_factor
 
 	_anim = AnimatedSprite2D.new()
 	_anim.name = "Anim"
 	_anim.sprite_frames = frames
 	_anim.centered = false
-	# 用项目默认的「最近邻」（project.godot 的 default_texture_filter=0）。
-	# 之前这里单独开线性过滤，是为了压住「半像素位移 → 逐帧抖动」，代价是主角全场最糊。
-	# 现在主角坐标、相机、屏震都做了整像素对齐（_pixel_snap_offset / game.gd），
-	# 抖动的成因没了，就可以回到最近邻 —— 与其余像素素材同一套风格，放大是硬像素块。
-	# 万一哪天又看到边缘在跳（多半是哪处对齐漏了），把这个常量改回 LINEAR 即可定位：
-	# 改完立刻不抖 = 对齐的问题，不是过滤的问题。
+	# 贴图是 1:1 原始分辨率，靠 scale 压回世界尺度。1:1 意味着 GPU 只做 1:1 采样，
+	# 每个源像素都精确落在一批屏幕像素上 —— 这是「不糊」的根本保证。
+	#
+	# 缩小的 Sprite2D 用 LINEAR 反而更锐：线性会在 4:1 缩小时把相邻 4 个源像素做加权，
+	# 得到平滑梯度；而最近邻是硬抽样。本项目原本全用最近邻（像素风），
+	# 但那些贴图都是 1:1 世界尺寸、只在相机 zoom 里放大，放大用最近邻才对。
+	# 现在贴图远大于世界尺寸（432→48，缩小 9 倍），方向反了，过滤该跟着反过来。
 	_anim.texture_filter = PLAYER_TEXTURE_FILTER
 	_visuals.add_child(_anim)
 	_apply_anim(ANIM_IDLE)
@@ -1102,6 +1134,10 @@ func _apply_anim(anim: StringName) -> void:
 	_anim_current = anim
 	_anim.animation = anim
 	_anim.offset = _anim_offsets.get(anim, Vector2.ZERO)
+	# scale 与 offset 必须成对换：offset 是缩放后坐标系里的绘制偏移，
+	# 两者来自同一份 cell 计算，缺一个角色就会偏出去。
+	var s: float = float(_anim_scales.get(anim, 1.0))
+	_anim.scale = Vector2(s, s)
 	_anim.play()
 
 func _build_hitboxes() -> void:
